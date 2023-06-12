@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_mod_picking::prelude::*;
+use crate::pieces::*;
 
 #[derive(Component)]
 pub struct Square {
@@ -36,8 +37,28 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 				x: i,
 				y: j
 			},
-			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut selected_square: ResMut<SelectedSquare>| {
-				selected_square.entity = Some(event.target);
+			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece)>| {
+				if let Ok(square) = squares_query.get(event.target) {
+					selected_square.entity = Some(event.target);
+
+					if let Some(selected_piece_entity) = selected_piece.entity {
+						if let Ok((_piece_entity, mut piece)) = pieces_query.get_mut(selected_piece_entity) {
+							piece.x = square.x;
+							piece.y = square.y;
+						}
+
+						selected_square.entity = None;
+						selected_piece.entity = None;
+					} else {
+						for (piece_entity, piece) in pieces_query.iter_mut() {
+							if piece.x == square.x && piece.y == square.y {
+								selected_piece.entity = Some(piece_entity);
+								break;
+							}
+						}
+					}
+				}
+
 				Bubble::Up
 			}),
 			OnPointer::<Over>::run_callback(|In(event): In<ListenedEvent<Over>>, mut hover_square: ResMut<HoverSquare>| {
@@ -55,6 +76,11 @@ struct SelectedSquare {
 
 #[derive(Default, Resource)]
 struct HoverSquare {
+	entity: Option<Entity>
+}
+
+#[derive(Default, Resource)]
+struct SelectedPiece {
 	entity: Option<Entity>
 }
 
@@ -80,6 +106,7 @@ impl Plugin for BoardPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<SelectedSquare>()
 			.init_resource::<HoverSquare>()
+			.init_resource::<SelectedPiece>()
 			.add_startup_system(create_board)
 			.add_system(color_squares);
 	}

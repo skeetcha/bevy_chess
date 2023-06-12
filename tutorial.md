@@ -776,3 +776,80 @@ pub fn spawn_rook(commands: &mut Commands, material: Handle<StandardMaterial>, p
 ```
 
 Great, now we spawn the pieces with the correct values set in the Pieces component. We should now be ready to implement movement.
+
+# Movement
+
+We're going to create a system that takes care of moving the pieces to the `x, y` coordinates on the `Piece` component. This way we just have to change those values, and the piece will start moving to it's new coordinates. This is pretty straight-forward:
+
+```rust
+fn move_pieces(time: Res<Time>, mut query: Query<(&mut Transform, &Piece)>) {
+    for (mut transform, piece) in query.iter_mut() {
+        // Get the direction to move in
+        let direction = Vec3::new(piece.x as f32, 0., piece.y as f32) - transform.translation;
+
+        // Only move if the piece isn't already there (distance is big)
+        if direction.length() > 0.1 {
+            transform.translation += direction.normalize() * time.delta_seconds();
+        }
+    }
+}
+```
+
+We'll also make a `PiecesPlugin`, very similar to the `BoardPlugin`:
+
+```rust
+pub struct PiecesPlugin;
+
+impl Plugin for PiecesPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_startup_system(create_pieces)
+            .add_system(move_pieces);
+    }
+}
+```
+
+Remember to add this plugin in `main.rs`, and change `create_pieces` to private!
+
+We now need to implement something to change the unit positions. We'll change the callback for the `Click` event to also move the pieces for now, and we'll refactor it into something neater later:
+
+```rust
+#[derive(Default, Resource)]
+struct SelectedPiece {
+	entity: Option<Entity>
+}
+
+fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+	[...]
+			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece)>| {
+				if let Ok(square) = squares_query.get(event.target) {
+					selected_square.entity = Some(event.target);
+
+					if let Some(selected_piece_entity) = selected_piece.entity {
+						if let Ok((_piece_entity, mut piece)) = pieces_query.get_mut(selected_piece_entity) {
+							piece.x = square.x;
+							piece.y = square.y;
+						}
+
+						selected_square.entity = None;
+						selected_piece.entity = None;
+					} else {
+						for (piece_entity, piece) in pieces_query.iter_mut() {
+							if piece.x == square.x && piece.y == square.y {
+								selected_piece.entity = Some(piece_entity);
+								break;
+							}
+						}
+					}
+				}
+
+				Bubble::Up
+			})
+	[...]
+}
+```
+
+We first added a new `SelectedPiece` resource, which will work like `SelectedSquare`, keeping track of the currently selected piece. If there is a selected piece and the player clicks another square, we want the piece to move there and then deselect the piece. If there is no piece selected, and the user clicks a square, we want to select the piece on that square, if there is one. ~~If the player clicked outside of the board, we deselect everything.~~ For that last part (the deselecting), I can't get it to work with `bevy_mod_picking`, so if anyone has any idea of how to get it to work, please feel free to submit a PR with the relevant code and I'll update this part of the tutorial.
+
+This code is a bit confusing, so we'll rework it later. For now, it does what we want! Look at those pieces moving:
+
+![https://caballerocoll.com/images/bevy_chess_pieces_moving.gif]
