@@ -42,9 +42,13 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 					selected_square.entity = Some(event.target);
 
 					if let Some(selected_piece_entity) = selected_piece.entity {
+						let pieces_vec = pieces_query.iter_mut().map(|(_, piece)| * piece).collect();
+
 						if let Ok((_piece_entity, mut piece)) = pieces_query.get_mut(selected_piece_entity) {
-							piece.x = square.x;
-							piece.y = square.y;
+							if piece.is_move_valid((square.x, square.y), pieces_vec) {
+								piece.x = square.x;
+								piece.y = square.y;
+							}
 						}
 
 						selected_square.entity = None;

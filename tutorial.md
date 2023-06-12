@@ -853,3 +853,195 @@ We first added a new `SelectedPiece` resource, which will work like `SelectedSqu
 This code is a bit confusing, so we'll rework it later. For now, it does what we want! Look at those pieces moving:
 
 ![https://caballerocoll.com/images/bevy_chess_pieces_moving.gif]
+
+# Implementing available squares
+
+We now need to limit what squares a piece can move to, because currently every piece can move anywhere. There's two approaches here. One of them is computing which squares are available and allowed for that piece, and checking if the move is one of those squares, and the other approach is to check that the move is a valid square (allowed and available). The first one is a bit more complicated, but it allows us to highlight all of the available squares, while the second is easier to do. (Actually the first one can be done with the second, just checking all 64 squares). We'll go with the second one, but feel free to implement the first one on your own!
+
+Now, we'll add some helper functions first to make our work easier implementing validation. The first function we'll add just returns the color of a square if there is a piece, and returns `None` if it's empty:
+
+```rust
+fn color_of_square(pos: (u8, u8), pieces: &Vec<Piece>) -> Option<PieceColor> {
+	for piece in pieces {
+		if piece.x == pos.0 && piece.y == pos.1 {
+			return Some(piece.color);
+		}
+	}
+
+	None
+}
+```
+
+This way we can make test for things like not moving into a piece of the same color, or allowing diagonal movement for pawns only when there's a piece of the opposite color. Let's also add a function to check if all the squares between two are empty. This will serve us for the movement of the Rook, Bishop and Queen:
+
+```rust
+fn is_path_empty(begin: (u8, u8), end: (u8, u8), pieces: &Vec<Piece>) -> bool {
+	// Same column
+	if begin.0 == end.0 {
+		for piece in pieces {
+			if piece.x == begin.0 && ((piece.y > begin.1 && piece.y < end.1) || (piece.y > end.1 && piece.y < begin.1)) {
+				return false;
+			}
+		}
+	}
+
+	// Same row
+	if begin.1 == end.1 {
+		for piece in pieces {
+			if piece.y == begin.1 && ((piece.x > begin.0 && piece.x < end.0) || (piece.x > end.0 && piece.x < begin.0)) {
+				return false;
+			}
+		}
+	}
+
+	// Diagonals
+	let x_diff = (begin.0 as i8 - end.0 as i8).abs();
+	let y_diff = (begin.1 as i8 - end.1 as i8).abs();
+
+	if x_diff == y_diff {
+		for i in 1..x_diff {
+			let pos = if begin.0 < end.0 && begin.1 < end.1 {
+				// left bottom - right top
+				(begin.0 + i as u8, begin.1 + i as u8)
+			} else if begin.0 < end.0 && begin.1 > end.1 {
+				// left top - right bottom
+				(begin.0 + i as u8, begin.1 - i as u8)
+			} else if begin.0 > end.0 && begin.1 < end.1 {
+				// right bottom - left top
+				(begin.0 - i as u8, begin.1 + i as u8)
+			} else {
+				// begin.0 > end.0 && begin.1 > end.1
+				// right top - left bottom
+				(begin.0 - i as u8, begin.1 - i as u8)
+			};
+
+			if color_of_square(pos, pieces).is_some() {
+				return false;
+			}
+		}
+	}
+
+	true
+}
+```
+
+The way we implemented it works both in straight lines and in diagonals, but we could have split it into two separate functions if we wanted to.
+
+The function first checks for a path in the same column, then in the same row, and then in the four diagonals. We can now implement a method to check if a move is valid for a certain `Piece`. We'll count taking a piece as a valid move, and we'll deal with the actual taking of the piece later. This function is a bit long, but here it is in it's entirety:
+
+```rust
+impl Piece {
+    pub fn is_move_valid(&self, new_position: (u8, u8), pieces: Vec<Piece>) -> bool {
+        // If there's a piece of the same color in the same square, it can't move
+        if color_of_square(new_position, &pieces) == Some(self.color) {
+            return false;
+        }
+
+        match self.piece_type {
+            PieceType::King => {
+                // Horizontal
+                ((self.x as i8 - new_position.0 as i8).abs() == 1 && (self.y == new_position.1))
+                // Vertical
+                || ((self.y as i8 - new_position.1 as i8).abs() == 1 && (self.x == new_position.0))
+                // Diagnoal
+                || ((self.x as i8 - new_position.0 as i8).abs() == 1 && (self.y as i8 - new_position.1 as i8).abs() == 1)
+            },
+            PieceType::Queen => {
+                is_path_empty((self.x, self.y), new_position, &pieces)
+                && ((self.x as i8 - new_position.0 as i8).abs() == (self.y as i8 - new_position.1 as i8).abs()
+                    || ((self.x == new_position.0 && self.y != new_position.1)
+                    || (self.y == new_position.1 && self.x != new_position.0)))
+            },
+            PieceType::Bishop => {
+                is_path_empty((self.x, self.y), new_position, &pieces)
+                && (self.x as i8 - new_position.0 as i8).abs() == (self.y as i8 - new_position.1 as i8).abs()
+            },
+            PieceType::Knight => {
+                ((self.x as i8 - new_position.0 as i8).abs() == 2
+                    && (self.y as i8 - new_position.1 as i8).abs() == 1)
+                    || ((self.x as i8 - new_position.0 as i8).abs() == 1
+                        && (self.y as i8 - new_position.1 as i8).abs() == 2)
+            },
+            PieceType::Rook => {
+                is_path_empty((self.x, self.y), new_position, &pieces)
+                    && ((self.x == new_position.0 && self.y != new_position.1)
+                        || (self.y == new_position.1 && self.x != new_position.0))
+            },
+            PieceType::Pawn => {
+                if self.color == PieceColor::White {
+                    // Normal move
+                    if new_position.0 as i8 - self.x as i8 == 1 && (self.y == new_position.1) {
+                        if color_of_square(new_position, &pieces).is_none() {
+                            return true;
+                        }
+                    }
+
+                    // Move 2 sqauares
+                    if self.x == 1 && new_position.0 as i8 - self.x as i8 == 2 && (self.y == new_position.1) && is_path_empty((self.x, self.y), new_position, &pieces) {
+                        if color_of_square(new_position, &pieces).is_none() {
+                            return true;
+                        }
+                    }
+
+                    // Take piece
+                    if new_position.0 as i8 - self.x as i8 == 1 && (self.y as i8 - new_position.1 as i8).abs() == 1 {
+                        if color_of_square(new_position, &pieces) == Some(PieceColor::Black) {
+                            return true;
+                        }
+                    }
+                } else {
+                    // Normal move
+                    if new_position.0 as i8 - self.x as i8 == -1 && (self.y == new_position.1) {
+                        if color_of_square(new_position, &pieces).is_none() {
+                            return true;
+                        }
+                    }
+
+                    // Move 2 sqauares
+                    if self.x == 6 && new_position.0 as i8 - self.x as i8 == -2 && (self.y == new_position.1) && is_path_empty((self.x, self.y), new_position, &pieces) {
+                        if color_of_square(new_position, &pieces).is_none() {
+                            return true;
+                        }
+                    }
+
+                    // Take piece
+                    if new_position.0 as i8 - self.x as i8 == -1 && (self.y as i8 - new_position.1 as i8).abs() == 1 {
+                        if color_of_square(new_position, &pieces) == Some(PieceColor::White) {
+                            return true;
+                        }
+                    }
+                }
+
+                false
+            }
+        }
+    }
+}
+```
+
+We first check that there is no piece of the same color there, and then we match on the type of piece, because each has a different movement and needs different logic.
+
+Most pieces are relatively simple to check. For example, for the King we check three possibilities: same row and a movement of 1 vertically, same column and movement of 1 horizontally, or a diagonal movement (movement of 1 horizontally and movement of 1 vertically). With the Queen, Bishop, and Rook we also check that the path is empty.
+
+Pawns are a bit more interesting. As they can only move in one direction, we separate the two colors, so that white can only go up and black can only go down. The movement is then split into three different possibilities: move forward one square, move two squares if it's on the initial square, and taking a piece in the diagonals.
+
+We won't implement en passant or castling, although those shouldn't take too much time if you want to figure them out.
+
+Finally, we just need to call the function before moving a piece to check that the move is valid:
+
+```rust
+fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+	[...]
+						let pieces_vec = pieces_query.iter_mut().map(|(_, piece)| * piece).collect();
+
+						if let Ok((_piece_entity, mut piece)) = pieces_query.get_mut(selected_piece_entity) {
+							if piece.is_move_valid((square.x, square.y), pieces_vec) {
+								piece.x = square.x;
+								piece.y = square.y;
+							}
+						}
+	[...]
+}
+```
+
+Cool, now pieces can only do legal moves! But if you notice, when we move to a piece occupied by a piece of a different color, nothing happens and both pieces stand in the same place. Let' s solve that by implementing taking pieces.

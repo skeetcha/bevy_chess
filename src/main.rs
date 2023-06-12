@@ -20,7 +20,7 @@ fn main() {
 		}))
 		.add_plugins(DefaultPickingPlugins
 			.build()
-			//.disable::<DebugPickingPlugin>()
+			.disable::<DebugPickingPlugin>()
 		)
 		.add_plugin(BoardPlugin)
 		.add_plugin(PiecesPlugin)
