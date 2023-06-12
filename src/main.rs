@@ -22,8 +22,8 @@ fn main() {
 			.build()
 			.disable::<DebugPickingPlugin>()
 		)
+		.add_plugin(BoardPlugin)
 		.add_startup_system(setup)
-		.add_startup_system(create_board)
 		.add_startup_system(create_pieces)
 		.run();
 }
@@ -43,33 +43,6 @@ fn setup(mut commands: Commands) {
 		transform: Transform::from_translation(Vec3::new(4., 8., 4.)),
 		..default()
 	});
-}
-
-fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
-	// Add meshes and materials
-	let mesh = meshes.add(Mesh::from(shape::Plane { size: 1., ..default() }));
-	
-	// Spawn 64 squares
-	for i in 0..8 {
-		for j in 0..8 {
-			commands.spawn((PbrBundle {
-				mesh: mesh.clone(),
-				// Change material according to position to get alternating pattern
-				material: if (i + j + 1) % 2 == 0 {
-					materials.add(Color::rgb(1., 0.9, 0.9).into())
-				} else {
-					materials.add(Color::rgb(0., 0.1, 0.1).into())
-				},
-				transform: Transform::from_translation(Vec3::new(i as f32, 0., j as f32)),
-				..default()
-			}, PickableBundle::default(),
-			RaycastPickTarget::default(),
-			Square {
-				x: i,
-				y: j
-			}));
-		}
-	}
 }
 
 fn create_pieces(mut commands: Commands, asset_server: Res<AssetServer>, mut materials: ResMut<Assets<StandardMaterial>>) {

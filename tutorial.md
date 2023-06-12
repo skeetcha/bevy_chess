@@ -610,20 +610,33 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 			Square {
 				x: i,
 				y: j
-			}));
+			},
+			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut selected_square: ResMut<SelectedSquare>| {
+				selected_square.entity = Some(event.target);
+				Bubble::Up
+			}),
+			OnPointer::<Over>::run_callback(|In(event): In<ListenedEvent<Over>>, mut hover_square: ResMut<HoverSquare>| {
+				hover_square.entity = Some(event.target);
+				Bubble::Up
+			})));
 		}
 	}
 }
 ```
 
-~~Note: In theory this should work by just creating 4 materials and replacing the handles in the squares, but there's a bug in Bevy that makes that not work.~~ Update: This has now been fixed! In the [last section](#extra-steps) we'll rework this to use the slightly more efficient version.
+~~Note: In theory this should work by just creating 4 materials and replacing the handles in the squares, but there's a bug in Bevy that makes that not work. Update: This has now been fixed! In the [last section](#extra-steps) we'll rework this to use the slightly more efficient version.~~ Update: This has been reworked a bit to simply just pass the target of the event (whether it be the mouse hovering over an entity such as with `OnPointer::<Over>` or the mouse clicking on an entity as with `OnPointer::<Click>`).
 
-Everything should look exactly the same. Let's create a resource to keep track of which square is currently selected:
+Everything should look exactly the same. Let's create a resource to keep track of which square is currently selected as well as which square is being hovered over:
 
 ```rust
-#[derive(Default)]
+#[derive(Default, Resource)]
 struct SelectedSquare {
     entity: Option<Entity>
+}
+
+#[derive(Default, Resource)]
+struct HoverSquare {
+	entity: Option<Entity>
 }
 ```
 
@@ -632,4 +645,73 @@ Easy as that! We're deriving `Default` so that when the plugin is initialized it
 We'll now make a system that changes the color of the squares:
 
 ```rust
+fn color_squares(selected_square: Res<SelectedSquare>, hover_square: Res<HoverSquare>, mut materials: ResMut<Assets<StandardMaterial>>, query: Query<(Entity, &Square, &Handle<StandardMaterial>)>) {
+	for (entity, square, material_handle) in query.iter() {
+		let material = materials.get_mut(material_handle).unwrap();
+
+		material.base_color = if Some(entity) == hover_square.entity {
+			Color::rgb(0.8, 0.3, 0.3)
+		} else if Some(entity) == selected_square.entity {
+			Color::rgb(0.9, 0.1, 0.1)
+		} else if square.is_white() {
+			Color::rgb(1., 0.9, 0.9)
+		} else {
+			Color::rgb(0., 0.1, 0.1)
+		};
+	}
+}
 ```
+
+There's a lot of new stuff here, so let's unpack that. The system first gets the entity under the cursor using our `HoverSquare` resource, which gives us the entity.
+
+`Query` is a tad more interesting, it provides us with an iterable of all the entities that have the Components we select, in this case `Entity` (which all entities have), `Square`, and `Handle<StandardMaterial>`. We can now iterate over it with `query.iter()`, which will provide us access to the components.
+
+Note: In queries, components have to be references (i.e. have `&`), except `Entity`, which is used normally.
+
+For each of the squares, we first get the actual material from the `Assets<StandardMaterial>` resource using `get_mut()`, and then we set the base color according to if it's hovered, selected, white or black, in that order. This way hovered squares get painted the hovered color even if they're selected.
+
+Feel free to play around with the colors and change them to something else!
+
+We still need a way to select squares, but before we do that, we're going to create our a plugin to keep things a bit more clean. In `board.rs` we're going to add the following, and change all of the systems to private:
+
+```rust
+pub struct BoardPlugin;
+
+impl Plugin for BoardPlugin {
+	fn build(&self, app: &mut App) {
+		app.init_resource::<SelectedSquare>()
+			.init_resource::<HoverSquare>()
+			.add_startup_system(create_board)
+			.add_system(color_squares);
+	}
+}
+```
+
+`init_resource` is what takes care of initializing `SelectedSquare` and `HoverSquare`. If we don't add this, Bevy will complain when we try to use the resource. Now in `main.rs` we can add `BoardPlugin` like `DefaultPlugins` or `DefaultPickingPlugins`:
+
+```rust
+fn main() {
+	App::new()
+		.insert_resource(Msaa::Sample4)
+		.add_plugins(DefaultPlugins.set(WindowPlugin {
+			primary_window: Some(Window {
+				title: "Chess!".into(),
+				resolution: (800., 800.).into(),
+				..default()
+			}),
+			..default()
+		}))
+		.add_plugins(DefaultPickingPlugins
+			.build()
+			.disable::<DebugPickingPlugin>()
+		)
+		.add_plugin(BoardPlugin)
+		.add_startup_system(setup)
+		.add_startup_system(create_pieces)
+		.run();
+}
+```
+
+This way we don't have to keep track of which board systems exist from `main.rs`, and everything is self contained in `board.rs`.
+
+If you run the game now, you should see the square under the cursor being highlighted by the color we selected, and when we click on the square, it should highlight with the other color we selected.
