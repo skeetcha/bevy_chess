@@ -715,3 +715,64 @@ fn main() {
 This way we don't have to keep track of which board systems exist from `main.rs`, and everything is self contained in `board.rs`.
 
 If you run the game now, you should see the square under the cursor being highlighted by the color we selected, and when we click on the square, it should highlight with the other color we selected.
+
+# Adding types of pieces
+
+Currently, our pieces are just an empty parent object with a child that holds the mesh, and we have no way to distinguish between them. Let's create a `Piece` component to keep what piece it is.
+
+```rust
+#[derive(Clone, Copy, PartialEq)]
+pub enum PieceColor {
+    White,
+    Black
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum PieceType {
+    King,
+    Queen,
+    Bishop,
+    Knight,
+    Rook,
+    Pawn
+}
+
+#[derive(Clone, Copy, Component)]
+pub struct Piece {
+    pub color: PieceColor,
+    pub piece_type: PieceType,
+    // Current Position
+    pub x: u8,
+    pub y: u8
+}
+```
+
+We first add two enums with all the possibilities, and then declare the `Piece` component, which will have a `PieceColor`, `PieceType`, and the piece position. The reason that we have the position here again, and we don't just use the `Transform` component, is that we will want the pieces to move from one square to the next, and there will be times when the piece is halfway between two squares, and we want to know the one it's actually supposed to be on.
+
+We're also going to change how we call the `spawn_[piece]` function calls to be like the following:
+
+```rust
+spawn_rook(commands, white_material.clone(), PieceColor::White, rook_handle.clone(), (0, 0));
+```
+
+And the definitions to be like:
+
+```rust
+pub fn spawn_rook(commands: &mut Commands, material: Handle<StandardMaterial>, piece_color: PieceColor, mesh: Handle<Mesh>, position: (u8, u8)) {
+    commands.spawn((PbrBundle {
+        transform: Transform::from_translation(Vec3::new(position.0 as f32, 0., position.1 as f32)),
+        ..default()
+    },
+    Piece {
+        color: piece_color,
+        piece_type: PieceType::Rook,
+        x: position.0,
+        y: position.1
+    }))
+    .with_children(|parent| {
+        [...]
+    });
+}
+```
+
+Great, now we spawn the pieces with the correct values set in the Pieces component. We should now be ready to implement movement.
