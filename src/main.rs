@@ -1,8 +1,10 @@
 mod pieces;
 mod board;
+mod ui;
 
 use pieces::*;
 use board::*;
+use ui::*;
 
 use bevy::prelude::*;
 use bevy_mod_picking::prelude::*;
@@ -24,6 +26,7 @@ fn main() {
 		)
 		.add_plugin(BoardPlugin)
 		.add_plugin(PiecesPlugin)
+		.add_plugin(UIPlugin)
 		.add_startup_system(setup)
 		.run();
 }
@@ -35,6 +38,10 @@ fn setup(mut commands: Commands) {
 			Quat::from_xyzw(-0.3, -0.5, -0.3, 0.5).normalize(),
 			Vec3::new(-7., 20., 4.)
 		)),
+		camera: Camera {
+			order: 1,
+			..default()
+		},
 		..default()
 	}, RaycastPickCamera::default()));
 

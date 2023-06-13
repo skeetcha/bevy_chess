@@ -1277,3 +1277,132 @@ OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entit
 ![https://caballerocoll.com/images/bevy_chess_finished.gif]
 
 The main game logic is all done now, but we'll make some other changes to top it all off.
+
+# Displaying the current turn
+
+One topic we haven't delved into is UI. We'll do something simple, to show the basics of how it works, like showing which player should move next.
+
+We'll create a new file called `ui.rs`, and we'll add two systems to it: `init_next_move_text` and `next_move_text_update`. The first one will be a startup system, which will spawn a `CameraUiBundle` and the text, and the second one will take care of updating the text when the turn changes. We'll also make a plugin, to keep everything more organized. Here's the whole file:
+
+```rust
+use crate::{board::*, pieces::*};
+use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig};
+
+// Component to mark the Text entity
+#[derive(Component)]
+struct NextMoveText;
+
+// Initialize UiCamera and text
+fn init_next_move_text(mut commands: Commands, asset_server: ResMut<AssetServer>) {
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+
+    commands.spawn(Camera2dBundle {
+        camera: Camera {
+            order: 2,
+            ..default()
+        },
+        camera_2d: Camera2d {
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        ..default()
+    });
+    commands.spawn((
+        TextBundle::from_section(
+            "Next Move: White", TextStyle {
+                font: font,
+                font_size: 40.0,
+                color: Color::rgb(0.8, 0.8, 0.8)
+            }
+        )
+        .with_text_alignment(TextAlignment::Center)
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            position: UiRect {
+                left: Val::Px(10.),
+                top: Val::Px(10.),
+                ..default()
+            },
+            ..default()
+        }),
+        NextMoveText
+    ));
+}
+
+fn next_move_text_update(mut _commands: Commands, turn: Res<PlayerTurn>, mut query: Query<(&mut Text, &NextMoveText)>) {
+    if !turn.is_changed() {
+        return;
+    }
+
+    for (mut text,  _tag) in query.iter_mut() {
+        text.sections[0].value = format!("Next move: {}", match turn.0 {
+            PieceColor::White => "White",
+            PieceColor::Black => "Black"
+        });
+    }
+}
+
+pub struct UIPlugin;
+
+impl Plugin for UIPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_startup_system(init_next_move_text)
+            .add_system(next_move_text_update);
+    }
+}
+```
+
+You also have to change `PlayerTurn` to be public:
+
+```rust
+pub struct PlayerTurn(pub PieceColor);
+```
+
+You will have to copy the Font from [here](https://github.com/guimcaballero/bevy_chess/tree/main/assets/fonts) into the `assets/fonts` folder, or replace it with any other font you have lying around. Remember to also add the plugin in `main.rs`!
+
+Update: Because of how the camera works in `ui.rs`, you need to change the `Camera3dBundle` in `main.rs` to the following:
+
+```rust
+fn setup(mut commands: Commands) {
+	// Camera
+	commands.spawn((Camera3dBundle {
+		transform: Transform::from_matrix(Mat4::from_rotation_translation(
+			Quat::from_xyzw(-0.3, -0.5, -0.3, 0.5).normalize(),
+			Vec3::new(-7., 20., 4.)
+		)),
+		camera: Camera {
+			order: 1,
+			..default()
+		},
+		..default()
+	}, RaycastPickCamera::default()));
+
+	// Light
+	commands.spawn(PointLightBundle {
+		transform: Transform::from_translation(Vec3::new(4., 8., 4.)),
+		..default()
+	});
+}
+```
+
+If you now run the game, you should see a small text at the top that shows the current turn:
+
+![https://caballerocoll.com/images/bevy_chess_ui.png]
+
+The `init_next_move_text` system doesn't have anything special, it just creates an entity with `Camera2dBundle`, and a `TextBundle` which has the `NextMoveText` component as a tag, to be able to tell it apart from other `Text` entities (there are none in our case, but you might want to add more down the line).
+
+`next_move_text_update` is a bit more interesting. We don't need it to run every frame, because the turn will change only sparsely. We can use the `is_changed` function for that purpose! Bevy will only run this system when `PlayerTurn` has changed, this way we don't waste time updating the text when the turn has not changed.
+
+There are similar query transformers we could use for querying components, but we haven't needed them. There's `Added<T>`, which will only run for entities that have had `T` added, `Mutated<T>`, which will run for entities that have had their `T` component change, and `Changed<T>`, which is a combination of `Mutated` and `Added`.
+
+The following is an example of a system that prints to the console changes to the Text component:
+
+```rust
+fn log_text_changes(query: Query<&Text, Mutated<Text>>) {
+	for text in query.iter() {
+		println!("New text: {}", text.value);
+	}
+}
+```
+
+If you add this system to the `UIPlugin`, you'll see the text printed to the console every time it changes. If the query was `query: Query<&Text>` instead, it would run every frame, and you'd see your console filled with output.

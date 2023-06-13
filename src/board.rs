@@ -148,7 +148,7 @@ impl Plugin for BoardPlugin {
 }
 
 #[derive(Resource)]
-struct PlayerTurn(PieceColor);
+pub struct PlayerTurn(pub PieceColor);
 
 impl Default for PlayerTurn {
 	fn default() -> Self {
