@@ -37,7 +37,7 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 				x: i,
 				y: j
 			},
-			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
+			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, mut turn: ResMut<PlayerTurn>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
 				if let Ok(square) = squares_query.get(event.target) {
 					selected_square.entity = Some(event.target);
 
@@ -64,6 +64,11 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 								// Move piece
 								piece.x = square.x;
 								piece.y = square.y;
+
+								turn.0 = match turn.0 {
+									PieceColor::White => PieceColor::Black,
+									PieceColor::Black => PieceColor::White
+								};
 							}
 						}
 
@@ -71,7 +76,7 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 						selected_piece.entity = None;
 					} else {
 						for (piece_entity, piece, _) in pieces_query.iter_mut() {
-							if piece.x == square.x && piece.y == square.y {
+							if piece.x == square.x && piece.y == square.y && piece.color == turn.0 {
 								selected_piece.entity = Some(piece_entity);
 								break;
 							}
@@ -127,7 +132,17 @@ impl Plugin for BoardPlugin {
 		app.init_resource::<SelectedSquare>()
 			.init_resource::<HoverSquare>()
 			.init_resource::<SelectedPiece>()
+			.init_resource::<PlayerTurn>()
 			.add_startup_system(create_board)
 			.add_system(color_squares);
+	}
+}
+
+#[derive(Resource)]
+struct PlayerTurn(PieceColor);
+
+impl Default for PlayerTurn {
+	fn default() -> Self {
+		Self(PieceColor::White)
 	}
 }
