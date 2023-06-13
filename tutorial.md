@@ -1204,3 +1204,76 @@ OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entit
 And with that, turns are done! If you play the game and try to move a Black piece at the start it won't work, but after moving a White you'll be able to.
 
 We just need to end the game when the King is taken, and we'll be done with out minimal chess.
+
+# Ending the game
+
+We have to choose what to do when the King is taken. For this tutorial, we'll just exit the game and print the result to the console, but you can change it later to do something else, like start a new game, or maybe show some text on screen displaying the winner.
+
+Exiting the game involves sending Events. We just need to send the `AppExit` event to `Events<AppExit>`, using the `send` method it provides.
+
+```rust
+OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, mut turn: ResMut<PlayerTurn>, mut app_exit_events: ResMut<Events<AppExit>>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
+	if let Ok(square) = squares_query.get(event.target) {
+		selected_square.entity = Some(event.target);
+
+		if let Some(selected_piece_entity) = selected_piece.entity {
+			let pieces_entity_vec: Vec<(Entity, Piece, Vec<Entity>)> = pieces_query.iter_mut().map(|(entity, piece, children)| {
+				(
+					entity,
+					*piece,
+					children.iter().map(|entity| *entity).collect()
+				)
+			}).collect();
+
+			let pieces_vec = pieces_query.iter_mut().map(|(_, piece, _)| * piece).collect();
+
+			if let Ok((_piece_entity, mut piece, _piece_children)) = pieces_query.get_mut(selected_piece_entity) {
+				if piece.is_move_valid((square.x, square.y), pieces_vec) {
+					for (other_entity, other_piece, _other_children) in pieces_entity_vec {
+						if other_piece.x == square.x && other_piece.y == square.y && other_piece.color != piece.color {
+							if other_piece.piece_type == PieceType::King {
+								// If the king is taken, we should exit
+								println!("{} won! Thanks for playing!", match turn.0 {
+									PieceColor::White => "White",
+									PieceColor::Black => "Black"
+								});
+								app_exit_events.send(AppExit);
+							}
+
+							// Despawn pice
+							entity_commands.entity(other_entity).despawn_recursive();
+						}
+					}
+
+					// Move piece
+					piece.x = square.x;
+					piece.y = square.y;
+
+					turn.0 = match turn.0 {
+						PieceColor::White => PieceColor::Black,
+						PieceColor::Black => PieceColor::White
+					};
+				}
+			}
+
+			selected_square.entity = None;
+			selected_piece.entity = None;
+		} else {
+			for (piece_entity, piece, _) in pieces_query.iter_mut() {
+				if piece.x == square.x && piece.y == square.y && piece.color == turn.0 {
+					selected_piece.entity = Some(piece_entity);
+					break;
+				}
+			}
+		}
+	}
+
+	Bubble::Up
+})
+```
+
+`AppExit` isn't included in `bevy::prelude`, so we need to change the use statement to include that. Then when we take a piece, we check it it's the King, and if it is we print a statement to the console and send the event. That's it, our game finishes when we take the King!
+
+![https://caballerocoll.com/images/bevy_chess_finished.gif]
+
+The main game logic is all done now, but we'll make some other changes to top it all off.

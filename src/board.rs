@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, app::AppExit};
 use bevy_mod_picking::prelude::*;
 use crate::pieces::*;
 
@@ -37,7 +37,7 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 				x: i,
 				y: j
 			},
-			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, mut turn: ResMut<PlayerTurn>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
+			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, mut turn: ResMut<PlayerTurn>, mut app_exit_events: ResMut<Events<AppExit>>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
 				if let Ok(square) = squares_query.get(event.target) {
 					selected_square.entity = Some(event.target);
 
@@ -56,7 +56,16 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 							if piece.is_move_valid((square.x, square.y), pieces_vec) {
 								for (other_entity, other_piece, _other_children) in pieces_entity_vec {
 									if other_piece.x == square.x && other_piece.y == square.y && other_piece.color != piece.color {
-										// Despawn piece
+										if other_piece.piece_type == PieceType::King {
+											// If the king is taken, we should exit
+											println!("{} won! Thanks for playing!", match turn.0 {
+												PieceColor::White => "White",
+												PieceColor::Black => "Black"
+											});
+											app_exit_events.send(AppExit);
+										}
+
+										// Despawn pice
 										entity_commands.entity(other_entity).despawn_recursive();
 									}
 								}
