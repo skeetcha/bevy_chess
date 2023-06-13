@@ -1584,6 +1584,7 @@ impl Plugin for BoardPlugin {
 			.init_resource::<HoverSquare>()
 			.init_resource::<SelectedPiece>()
 			.init_resource::<PlayerTurn>()
+			.add_event::<ResetSelectedEvent>()
 			.add_startup_system(create_board)
 			.add_system(color_squares)
 			.add_system(select_piece)

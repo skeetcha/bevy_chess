@@ -1,4 +1,4 @@
-use bevy::{prelude::*, app::AppExit};
+use bevy::{prelude::*, app::AppExit, ecs::event::{EventReader, EventWriter}};
 use bevy_mod_picking::prelude::*;
 use crate::pieces::*;
 
@@ -96,10 +96,11 @@ impl Plugin for BoardPlugin {
 			.init_resource::<HoverSquare>()
 			.init_resource::<SelectedPiece>()
 			.init_resource::<PlayerTurn>()
+			.add_event::<ResetSelectedEvent>()
 			.add_startup_system(create_board)
 			.add_system(color_squares)
 			.add_system(select_piece)
-			.add_system(move_piece)
+			.add_system(move_piece.before(select_piece))
 			.add_system(reset_selected)
 			.add_system(despawn_taken_pieces);
 	}
