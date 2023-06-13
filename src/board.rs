@@ -37,15 +37,31 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 				x: i,
 				y: j
 			},
-			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece)>| {
+			OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
 				if let Ok(square) = squares_query.get(event.target) {
 					selected_square.entity = Some(event.target);
 
 					if let Some(selected_piece_entity) = selected_piece.entity {
-						let pieces_vec = pieces_query.iter_mut().map(|(_, piece)| * piece).collect();
+						let pieces_entity_vec: Vec<(Entity, Piece, Vec<Entity>)> = pieces_query.iter_mut().map(|(entity, piece, children)| {
+							(
+								entity,
+								*piece,
+								children.iter().map(|entity| *entity).collect()
+							)
+						}).collect();
 
-						if let Ok((_piece_entity, mut piece)) = pieces_query.get_mut(selected_piece_entity) {
+						let pieces_vec = pieces_query.iter_mut().map(|(_, piece, _)| * piece).collect();
+
+						if let Ok((_piece_entity, mut piece, _piece_children)) = pieces_query.get_mut(selected_piece_entity) {
 							if piece.is_move_valid((square.x, square.y), pieces_vec) {
+								for (other_entity, other_piece, _other_children) in pieces_entity_vec {
+									if other_piece.x == square.x && other_piece.y == square.y && other_piece.color != piece.color {
+										// Despawn piece
+										entity_commands.entity(other_entity).despawn_recursive();
+									}
+								}
+
+								// Move piece
 								piece.x = square.x;
 								piece.y = square.y;
 							}
@@ -54,7 +70,7 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 						selected_square.entity = None;
 						selected_piece.entity = None;
 					} else {
-						for (piece_entity, piece) in pieces_query.iter_mut() {
+						for (piece_entity, piece, _) in pieces_query.iter_mut() {
 							if piece.x == square.x && piece.y == square.y {
 								selected_piece.entity = Some(piece_entity);
 								break;

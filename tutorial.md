@@ -1045,3 +1045,74 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 ```
 
 Cool, now pieces can only do legal moves! But if you notice, when we move to a piece occupied by a piece of a different color, nothing happens and both pieces stand in the same place. Let' s solve that by implementing taking pieces.
+
+# Taking pieces
+
+This next chapter will be lighter than the past one, we just have to check the landing square for pieces of the opposite color, and despawn them if there are.
+
+For that we first need to add `Commands` as a parameter to our closure as part of the `OnPointer::<Click>` event listener:
+
+```rust
+|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>|
+```
+
+`Commands` has the `entity` function which takes an `Entity`, and returns `EntityCommands`. Through that, we can use the `despawn` function to despawn the entity.
+
+A note about Commands, Resources, and Queries: they have to be in this order, otherwise the system won't work. If you try putting Resources before Commands, or Queries before any of the other two, Bevy will complain.
+
+Here's the new function that also takes care of despawning a piece after it's taken:
+
+```rust
+OnPointer::<Click>::run_callback(|In(event): In<ListenedEvent<Click>>, mut entity_commands: Commands, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece, &Children)>| {
+	if let Ok(square) = squares_query.get(event.target) {
+		selected_square.entity = Some(event.target);
+
+		if let Some(selected_piece_entity) = selected_piece.entity {
+			let pieces_entity_vec: Vec<(Entity, Piece, Vec<Entity>)> = pieces_query.iter_mut().map(|(entity, piece, children)| {
+				(
+					entity,
+					*piece,
+					children.iter().map(|entity| *entity).collect()
+				)
+			}).collect();
+
+			let pieces_vec = pieces_query.iter_mut().map(|(_, piece, _)| * piece).collect();
+
+			if let Ok((_piece_entity, mut piece, _piece_children)) = pieces_query.get_mut(selected_piece_entity) {
+				if piece.is_move_valid((square.x, square.y), pieces_vec) {
+					for (other_entity, other_piece, _other_children) in pieces_entity_vec {
+						if other_piece.x == square.x && other_piece.y == square.y && other_piece.color != piece.color {
+							// Despawn piece
+							entity_commands.entity(other_entity).despawn_recursive();
+						}
+					}
+
+					// Move piece
+					piece.x = square.x;
+					piece.y = square.y;
+				}
+			}
+
+			selected_square.entity = None;
+			selected_piece.entity = None;
+		} else {
+			for (piece_entity, piece, _) in pieces_query.iter_mut() {
+				if piece.x == square.x && piece.y == square.y {
+					selected_piece.entity = Some(piece_entity);
+					break;
+				}
+			}
+		}
+	}
+
+	Bubble::Up
+})
+```
+
+The first difference you'll see is that we added `&Children` to the Query. The `despawn` function won't despawn child entities automatically, so in a normal game we'd use `despawn_recursive`, which does, but this is a nice way to show how to access children entities from a system. When we refactor this function later we'll change it `despawn_recursive`.
+
+`Children` is a vector of entities, so we can iterate over it and despawn the child entities.
+
+We also added `pieces_entity_vec`, so the borrow checker doesn't complain about having borrowed `pieces_query` twice. Finally, we added a loop to check if there is any piece of the opposite color in that square, and if there is, we despawn it and it's children.
+
+If you run the game now, you can take a piece and it will be despawned, cool!
