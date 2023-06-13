@@ -1406,3 +1406,194 @@ fn log_text_changes(query: Query<&Text, Mutated<Text>>) {
 ```
 
 If you add this system to the `UIPlugin`, you'll see the text printed to the console every time it changes. If the query was `query: Query<&Text>` instead, it would run every frame, and you'd see your console filled with output.
+
+# Refactor
+
+We have most of the game logic on our `OnPointer::<Click>` closure, which would be fine if we leave this as a prototype (or if you enjoy code archaeology with three month old functions where you don't remember anything and you also didn't leave comments because it's "self explanatory". I'm not speaking from experience 😌), but it doesn't really work if we want to be Responsible Programmers™. Let's clean it up!
+
+This change is going to be big, so get ready!
+
+First, we'll add a method to `PlayerTurn`, to keep things a bit neater:
+
+```rust
+impl PlayerTurn {
+	fn change(&mut self) {
+		self.0 = match self.0 {
+			PieceColor::White => PieceColor::Black,
+			PieceColor::Black => PieceColor::White		
+		}
+	}
+}
+```
+
+Next, we'll replace our `OnPointer::<Click>` closure for the following, which is much more representative of it's name, as it only deals with selecting a square. **Update**: During this entire tutorial, I've kept the `OnPointer::<Click>` closure as a closure instead of making it a function (as with `bevy_mod_picking`, that is something you can do). Here, I will move it out of the closure and into a proper function along with changing the code as in the original tutorial. It keeps the general part of selecting the square it previously had, but we removed all the extra moving, taking and despawning code:
+
+```rust
+fn select_square(In(event): In<ListenedEvent<Click>>, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, squares_query: Query<&Square>) -> Bubble {
+	if let Ok(_) = squares_query.get(event.target) {
+		selected_square.entity = Some(event.target);
+	} else {
+		selected_square.entity = None;
+		selected_piece.entity = None;
+	}
+
+	Bubble::Up
+}
+```
+
+Next, we'll add a `select_piece` system, that takes care of selecting the piece that is in the selected square. You'll notice that we use `is_changed` function from `Res<SelectedSquare>`, so that it only runs when we select a new square. It also exits early if there is no square to be found, and only changes the selected piece if there is none selected currently:
+
+```rust
+fn select_piece(selected_square: Res<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>, turn: Res<PlayerTurn>, squares_query: Query<&Square>, pieces_query: Query<(Entity, &Piece)>) {
+	if !selected_square.is_changed() {
+		return;
+	}
+
+	let square_entity = if let Some(entity) = selected_square.entity {
+		entity
+	} else {
+		return;
+	};
+
+	let square = if let Ok(square) = squares_query.get(square_entity) {
+		square
+	} else {
+		return;
+	};
+
+	if selected_piece.entity.is_none() {
+		// Select the piece in the currently selected square
+		for (piece_entity, piece) in pieces_query.iter() {
+			if piece.x == square.x && piece.y == square.y && piece.color == turn.0 {
+				// piece_entity is now the entity in the same square
+				selected_piece.entity = Some(piece_entity);
+				break;
+			}
+		}
+	}
+}
+```
+
+Most of the complexity for moving is still there to deal with the borrow checker, but it's now isolated in a single system: `move_piece`. It also only runs when the selected square changes, with `is_changed` from `Res<SelectedPiece>`. Here we encounter a problem: we want to run this system only when the selected square has changed, but we also want to change it after we're done. Events to the rescue! We'll create an event that will take care of resetting `SelectedSquare`, so we can call it from `move_piece`:
+
+```rust
+fn move_piece(mut commands: Commands, selected_square: Res<SelectedSquare>, selected_piece: Res<SelectedPiece>, mut turn: ResMut<PlayerTurn>, squares_query: Query<&Square>, mut pieces_query: Query<(Entity, &mut Piece)>, mut reset_selected_event: EventWriter<ResetSelectedEvent>) {
+	if !selected_square.is_changed() {
+		return;
+	}
+	
+	let square_entity = if let Some(entity) = selected_square.entity {
+		entity
+	} else {
+		return;
+	};
+
+	let square = if let Ok(square) = squares_query.get(square_entity) {
+		square
+	} else {
+		return;
+	};
+
+	if let Some(selected_piece_entity) = selected_piece.entity {
+		let pieces_vec = pieces_query
+			.iter_mut()
+			.map(|(_, piece)| *piece)
+			.collect::<Vec<Piece>>();
+
+		let pieces_entity_vec = pieces_query
+			.iter_mut()
+			.map(|(entity, piece)| (entity, *piece))
+			.collect::<Vec<(Entity, Piece)>>();
+
+		// Move the selected piece to the selected square
+		let mut piece = if let Ok((_piece_entity, piece)) = pieces_query.get_mut(selected_piece_entity) {
+			piece
+		} else {
+			return;
+		};
+
+		if piece.is_move_valid((square.x, square.y), pieces_vec) {
+			// Check if a piece of ther opposite color exists in this square and despawn it
+			for (other_entity, other_piece) in pieces_entity_vec {
+				if other_piece.x == square.x && other_piece.y == square.y && other_piece.color != piece.color {
+					// Mark the piece as taken
+					commands.entity(other_entity).insert(Taken);
+				}
+			}
+
+			// Move piece
+			piece.x = square.x;
+			piece.y = square.y;
+
+			// Change turn
+			turn.change();
+		}
+
+		reset_selected_event.send(ResetSelectedEvent);
+	}
+}
+
+struct ResetSelectedEvent;
+
+fn reset_selected(mut event_reader: EventReader<ResetSelectedEvent>, mut selected_square: ResMut<SelectedSquare>, mut selected_piece: ResMut<SelectedPiece>) {
+	for _event in event_reader.iter() {
+		selected_square.entity = None;
+		selected_piece.entity = None;
+	}
+}
+```
+
+We've created an empty struct called `ResetSelectedEvent`, which we can send using the send function in the `Event_Writer<ResetSelectedEvent>` struct. Then, the `reset_selected` system will consume this events and set `SelectedSquare` and `SelectedPiece` to `None`.
+
+Instead of despawning the piece and it's children directly from the `move_system`, we'll add a `Taken` component to the piece using the `insert` function from `EntityCommands` (that we get by calling `entity` from `Commands`), which just adds a component to an entity.
+
+We will then have another system that takes care of despawning pieces with the `Taken` component, and checking if we should quit the game:
+
+```rust
+#[derive(Component)]
+struct Taken;
+
+fn despawn_taken_pieces(mut commands: Commands, mut app_exit_events: EventWriter<AppExit>, query: Query<(Entity, &Piece, &Taken)>) {
+	for (entity, piece, _taken) in query.iter() {
+		// If the king is taken, we should exit
+		if piece.piece_type == PieceType::King {
+			println!("{} won! Thanks for playing!", match piece.color {
+				PieceColor::White => "Black",
+				PieceColor::Black => "White"
+			});
+
+			app_exit_events.send(AppExit);
+		}
+
+		// Despawn piece and children
+		commands.entity(entity).despawn_recursive();
+	}
+}
+```
+
+We could have used `Added<Taken>` in this query, but as we directly remove the entities, there won't be any entity with the `Taken` component that hasn't just had it added.
+
+Finally, we need to add all of these systems and events to the board plugin:
+
+```rust
+pub struct BoardPlugin;
+
+impl Plugin for BoardPlugin {
+	fn build(&self, app: &mut App) {
+		app.init_resource::<SelectedSquare>()
+			.init_resource::<HoverSquare>()
+			.init_resource::<SelectedPiece>()
+			.init_resource::<PlayerTurn>()
+			.add_startup_system(create_board)
+			.add_system(color_squares)
+			.add_system(select_piece)
+			.add_system(move_piece)
+			.add_system(reset_selected)
+			.add_system(despawn_taken_pieces);
+	}
+}
+```
+
+And we're done! The code isn't the best thing ever written, but we can now see each system doing it's own different thing. You can now play our finished chess!
+
+![https://caballerocoll.com/images/bevy_chess_all_done.gif]
