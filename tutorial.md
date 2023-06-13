@@ -1588,7 +1588,7 @@ impl Plugin for BoardPlugin {
 			.add_startup_system(create_board)
 			.add_system(color_squares)
 			.add_system(select_piece)
-			.add_system(move_piece)
+			.add_system(move_piece.before(select_piece))
 			.add_system(reset_selected)
 			.add_system(despawn_taken_pieces);
 	}
