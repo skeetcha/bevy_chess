@@ -25,7 +25,7 @@ fn select_square(In(event): In<ListenedEvent<Click>>, mut selected_square: ResMu
 	Bubble::Up
 }
 
-fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, materials: Res<SquareMaterials>) {
 	// Add meshes and materials
 	let mesh = meshes.add(Mesh::from(shape::Plane { size: 1., ..default() }));
 	
@@ -36,9 +36,9 @@ fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 				mesh: mesh.clone(),
 				// Change material according to position to get alternating pattern
 				material: if (i + j + 1) % 2 == 0 {
-					materials.add(Color::rgb(1., 0.9, 0.9).into())
+					materials.white_color.clone()
 				} else {
-					materials.add(Color::rgb(0., 0.1, 0.1).into())
+					materials.black_color.clone()
 				},
 				transform: Transform::from_translation(Vec3::new(i as f32, 0., j as f32)),
 				..default()
@@ -72,18 +72,16 @@ struct SelectedPiece {
 	entity: Option<Entity>
 }
 
-fn color_squares(selected_square: Res<SelectedSquare>, hover_square: Res<HoverSquare>, mut materials: ResMut<Assets<StandardMaterial>>, query: Query<(Entity, &Square, &Handle<StandardMaterial>)>) {
-	for (entity, square, material_handle) in query.iter() {
-		let material = materials.get_mut(material_handle).unwrap();
-
-		material.base_color = if Some(entity) == hover_square.entity {
-			Color::rgb(0.8, 0.3, 0.3)
+fn color_squares(selected_square: Res<SelectedSquare>, hover_square: Res<HoverSquare>, materials: Res<SquareMaterials>, mut query: Query<(Entity, &Square, &mut Handle<StandardMaterial>)>) {
+	for (entity, square, mut material) in query.iter_mut() {
+		*material = if Some(entity) == hover_square.entity {
+			materials.highlight_color.clone()
 		} else if Some(entity) == selected_square.entity {
-			Color::rgb(0.9, 0.1, 0.1)
+			materials.selected_color.clone()
 		} else if square.is_white() {
-			Color::rgb(1., 0.9, 0.9)
+			materials.white_color.clone()
 		} else {
-			Color::rgb(0., 0.1, 0.1)
+			materials.black_color.clone()
 		};
 	}
 }
@@ -96,6 +94,7 @@ impl Plugin for BoardPlugin {
 			.init_resource::<HoverSquare>()
 			.init_resource::<SelectedPiece>()
 			.init_resource::<PlayerTurn>()
+			.init_resource::<SquareMaterials>()
 			.add_event::<ResetSelectedEvent>()
 			.add_startup_system(create_board)
 			.add_system(color_squares)
@@ -235,5 +234,27 @@ fn despawn_taken_pieces(mut commands: Commands, mut app_exit_events: EventWriter
 
 		// Despawn piece and children
 		commands.entity(entity).despawn_recursive();
+	}
+}
+
+#[derive(Resource)]
+struct SquareMaterials {
+	highlight_color: Handle<StandardMaterial>,
+	selected_color: Handle<StandardMaterial>,
+	black_color: Handle<StandardMaterial>,
+	white_color: Handle<StandardMaterial>
+}
+
+impl FromWorld for SquareMaterials {
+	fn from_world(world: &mut World) -> Self {
+		let world = world.cell();
+		let mut materials = world.get_resource_mut::<Assets<StandardMaterial>>().unwrap();
+
+		SquareMaterials {
+			highlight_color: materials.add(Color::rgb(0.8, 0.3, 0.3).into()),
+			selected_color: materials.add(Color::rgb(0.9, 0.1, 0.1).into()),
+			black_color: materials.add(Color::rgb(0., 0.1, 0.1).into()),
+			white_color: materials.add(Color::rgb(1., 0.9, 0.9).into())
+		}
 	}
 }

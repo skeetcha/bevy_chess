@@ -1598,3 +1598,88 @@ impl Plugin for BoardPlugin {
 And we're done! The code isn't the best thing ever written, but we can now see each system doing it's own different thing. You can now play our finished chess!
 
 ![https://caballerocoll.com/images/bevy_chess_all_done.gif]
+
+# Extra steps
+
+The following section deals with updating things that have been fixed or changed in Bevy after the release of this tutorial. You don't really need to implement these, but I think it will provide a higher code quality. These aren't implemented already in the tutorial because it doesn't result in it not working.
+
+One thing we'll change is how we change the square colors. Currently, due to a bug in Bevy, we had a different material for each square, and we changed the albedos in each of them to reflect the state. This isn't a huge problem when we have 64 materials, but it's cleaner to not have so much repeated data. We'll change this to instead have a `Resource` that keeps 4 material handles to each of the colors we want to use, and we'll swap the handles instead of the base colors.
+
+First things we'll do is create the resource, which we'll call `SquareMaterials`, and we'll implement the `FromResources` trait:
+
+```rust
+struct SquareMaterials {
+	highlight_color: Handle<StandardMaterial>,
+	selected_color: Handle<StandardMaterial>,
+	black_color: Handle<StandardMaterial>,
+	white_color: Handle<StandardMaterial>
+}
+
+impl FromWorld for SquareMaterials {
+	fn from_world(world: &mut World) -> Self {
+		let world = world.cell();
+		let mut materials = world.get_resource_mut::<Assets<StandardMaterial>>().unwrap();
+
+		SquareMaterials {
+			highlight_color: materials.add(Color::rgb(0.8, 0.3, 0.3).into()),
+			selected_color: materials.add(Color::rgb(0.9, 0.1, 0.1).into()),
+			black_color: materials.add(Color::rgb(0., 0.1, 0.1).into()),
+			white_color: materials.add(Color::rgb(1., 0.9, 0.9).into())
+		}
+	}
+}
+```
+
+The `FromWorld` trait allows us to initialize the resource properly, with each of the materials being added to Bevy's `Assets<StandardMaterial>` resource. We also have to tell Bevy to initialize the Resource, so we'll have to add `.init_resource::<SquareMaterials>()` to `BoardPlugin`.
+
+After that, we need to change the `create_board` and `color_squares` systems to use the resource;
+
+```rust
+fn create_board(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, materials: Res<SquareMaterials>) {
+	// Add meshes and materials
+	let mesh = meshes.add(Mesh::from(shape::Plane { size: 1., ..default() }));
+	
+	// Spawn 64 squares
+	for i in 0..8 {
+		for j in 0..8 {
+			commands.spawn((PbrBundle {
+				mesh: mesh.clone(),
+				// Change material according to position to get alternating pattern
+				material: if (i + j + 1) % 2 == 0 {
+					materials.white_color.clone()
+				} else {
+					materials.black_color.clone()
+				},
+				transform: Transform::from_translation(Vec3::new(i as f32, 0., j as f32)),
+				..default()
+			}, PickableBundle::default(),
+			RaycastPickTarget::default(),
+			Square {
+				x: i,
+				y: j
+			},
+			OnPointer::<Click>::run_callback(select_square),
+			OnPointer::<Over>::run_callback(|In(event): In<ListenedEvent<Over>>, mut hover_square: ResMut<HoverSquare>| {
+				hover_square.entity = Some(event.target);
+				Bubble::Up
+			})));
+		}
+	}
+}
+
+fn color_squares(selected_square: Res<SelectedSquare>, hover_square: Res<HoverSquare>, materials: Res<SquareMaterials>, mut query: Query<(Entity, &Square, &mut Handle<StandardMaterial>)>) {
+	for (entity, square, mut material) in query.iter_mut() {
+		*material = if Some(entity) == hover_square.entity {
+			materials.highlight_color.clone()
+		} else if Some(entity) == selected_square.entity {
+			materials.selected_color.clone()
+		} else if square.is_white() {
+			materials.white_color.clone()
+		} else {
+			materials.black_color.clone()
+		};
+	}
+}
+```
+
+And that's it! Pretty simple change, we just replaced the base color changing with a change to the actual handles.
