@@ -1683,3 +1683,22 @@ fn color_squares(selected_square: Res<SelectedSquare>, hover_square: Res<HoverSq
 ```
 
 And that's it! Pretty simple change, we just replaced the base color changing with a change to the actual handles.
+
+# Conclusion
+
+This concludes our Chess game! We went over most of the concepts in Bevy, so you should have a good grasp and be able to work on your own games now. If you finished the tutorial, don't hesitate to post a video on Twitter and [tag me](https://twitter.com/guimcaballero) so I can see it!
+
+# Next steps
+
+If you don't have any particular idea for a game, here's some stuff you could try as homework to improve the game and to practice a bit:
+
+* Implement a system that keeps track of the taken pieces and displays them, maybe in UI or as objects next to the board.
+* Finish implementing all the rules: castling, en passant, check mates, etc.
+* Make up new rules! Make your own chess variation and start trying different things.
+* Try moving the camera around!
+* Make the movement animations finish before allowing the next move to be made and before the pieces are despawned. You can keep a resource that has a `piece_in_movement` boolean, and don't run the picking system while that is true.
+* Advanced: Make a resource that keeps track of all the moves in a vector, so they can be reverted and saved.
+
+# Other
+
+This tutorial's text is licensed under the MIT license.
